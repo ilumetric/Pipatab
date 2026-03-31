@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Pipatab</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="lib.js"></script>
+</head>
+
+<body>
+    <canvas id="tablet"></canvas>
+    <div id="top-controls">
+        <span id="status-dot" class="offline" title="Disconnected" aria-hidden="true"></span>
+        <button id="btn-open-settings" title="Menu" aria-label="Open menu">
+            <span class="menu-dots" aria-hidden="true"></span>
+        </button>
+    </div>
+    <div id="settings" class="hidden">
+        <div id="settings-header">
+            <span>Pipatab</span>
+            <button id="btn-close-settings">&times;</button>
+        </div>
+        <div id="settings-body">
+            <section class="panel-section">
+                <label for="monitor-select">Display</label>
+                <select id="monitor-select"></select>
+            </section>
+            <section class="panel-section">
+                <div class="section-title">Trackpad</div>
+                <div class="setting-row">
+                    <div class="setting-copy">
+                        <div class="setting-name">Trackpad</div>
+                        <div class="setting-caption">Fingers become a trackpad only when the Pencil is away.</div>
+                    </div>
+                    <button id="btn-trackpad-mode" class="switch-button" aria-label="Toggle trackpad mode"
+                        aria-pressed="true">
+                        <span class="switch-thumb" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-copy">
+                        <div class="setting-name">Pinch Zoom</div>
+                        <div class="setting-caption">Two-finger pinch sends zoom while keeping pan and scroll live.
+                        </div>
+                    </div>
+                    <button id="btn-trackpad-zoom" class="switch-button" aria-label="Toggle trackpad zoom"
+                        aria-pressed="true">
+                        <span class="switch-thumb" aria-hidden="true"></span>
+                    </button>
+                </div>
+                <div class="setting-stack">
+                    <div class="setting-group">
+                        <div class="setting-name">Drag Gesture</div>
+                        <div id="trackpad-drag-mode" class="segmented-control" role="group"
+                            aria-label="Trackpad drag gesture">
+                            <button id="btn-trackpad-drag-double-tap" type="button"
+                                class="segment-button active">Double-Tap
+                                Drag</button>
+                            <button id="btn-trackpad-drag-hold" type="button" class="segment-button">Long
+                                Press</button>
+                        </div>
+                    </div>
+                    <div id="trackpad-hold-delay-group" class="range-setting">
+                        <div class="range-setting-header">
+                            <span class="setting-name">Hold Delay</span>
+                            <span id="trackpad-hold-delay-value" class="range-value">180 ms</span>
+                        </div>
+                        <input id="trackpad-hold-delay" class="range-input" type="range" min="120" max="420" step="10"
+                            value="180">
+                        <div class="setting-caption">How long to hold before drag starts.</div>
+                    </div>
+                </div>
+            </section>
+            <section class="panel-section">
+                <div class="section-title">Pressure Curve</div>
+                <div class="curve-editor-main">
+                    <canvas id="pressure-preview" width="256" height="176"></canvas>
+                </div>
+                <div class="curve-actions">
+                    <button id="btn-interpolate-middle" class="secondary-action">Interpolate Midle</button>
+                    <button id="btn-reset-pressure" class="secondary-action">Reset</button>
+                </div>
+            </section>
+            <section class="panel-section">
+                <button id="btn-fullscreen">Toggle Fullscreen</button>
+            </section>
+        </div>
+    </div>
+</body>
+
+</html>
