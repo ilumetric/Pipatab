@@ -1,12 +1,14 @@
+# Build output
+pipatab.exe
+
+# Go
+/vendor/
+
+# Node
+node_modules/
+
+# IDE
 /.vscode
-/target
-/deps/ffmpeg
-/deps/x264
-/deps/dist*
-/deps/nv-codec-headers
-/deps/libva
-c_helper/target
-c_helper/Cargo.lock
-*.js
+
+# OS
 *.js.map
-*.tar.gz

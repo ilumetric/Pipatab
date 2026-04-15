@@ -14,6 +14,20 @@
 
 <body>
     <canvas id="tablet"></canvas>
+    <div id="connection-overlay">
+        <div class="overlay-card">
+            <div class="overlay-spinner" aria-hidden="true"></div>
+            <h1 id="connection-title">Preparing tablet</h1>
+            <p id="connection-state">Connecting to the desktop...</p>
+            <p id="connection-detail" class="overlay-detail">Keep this page open while Pipatab establishes the local
+                network session.</p>
+            <div class="overlay-meta">
+                <span id="connection-attempt">Attempt 1</span>
+                <span class="overlay-sep">&middot;</span>
+                <span id="connection-host"></span>
+            </div>
+        </div>
+    </div>
     <div id="top-controls">
         <span id="status-dot" class="offline" title="Disconnected" aria-hidden="true"></span>
         <button id="btn-open-settings" title="Menu" aria-label="Open menu">
@@ -33,21 +47,14 @@
             <section class="panel-section">
                 <div class="section-title">Trackpad</div>
                 <div class="setting-row">
-                    <div class="setting-copy">
-                        <div class="setting-name">Trackpad</div>
-                        <div class="setting-caption">Fingers become a trackpad only when the Pencil is away.</div>
-                    </div>
+                    <div class="setting-name">Enabled</div>
                     <button id="btn-trackpad-mode" class="switch-button" aria-label="Toggle trackpad mode"
                         aria-pressed="true">
                         <span class="switch-thumb" aria-hidden="true"></span>
                     </button>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-copy">
-                        <div class="setting-name">Pinch Zoom</div>
-                        <div class="setting-caption">Two-finger pinch sends zoom while keeping pan and scroll live.
-                        </div>
-                    </div>
+                    <div class="setting-name">Pinch Zoom</div>
                     <button id="btn-trackpad-zoom" class="switch-button" aria-label="Toggle trackpad zoom"
                         aria-pressed="true">
                         <span class="switch-thumb" aria-hidden="true"></span>
@@ -55,14 +62,12 @@
                 </div>
                 <div class="setting-stack">
                     <div class="setting-group">
-                        <div class="setting-name">Drag Gesture</div>
+                        <div class="setting-name">Drag</div>
                         <div id="trackpad-drag-mode" class="segmented-control" role="group"
                             aria-label="Trackpad drag gesture">
                             <button id="btn-trackpad-drag-double-tap" type="button"
-                                class="segment-button active">Double-Tap
-                                Drag</button>
-                            <button id="btn-trackpad-drag-hold" type="button" class="segment-button">Long
-                                Press</button>
+                                class="segment-button active">Double-Tap</button>
+                            <button id="btn-trackpad-drag-hold" type="button" class="segment-button">Hold</button>
                         </div>
                     </div>
                     <div id="trackpad-hold-delay-group" class="range-setting">
@@ -72,22 +77,45 @@
                         </div>
                         <input id="trackpad-hold-delay" class="range-input" type="range" min="120" max="420" step="10"
                             value="180">
-                        <div class="setting-caption">How long to hold before drag starts.</div>
                     </div>
                 </div>
             </section>
             <section class="panel-section">
-                <div class="section-title">Pressure Curve</div>
-                <div class="curve-editor-main">
-                    <canvas id="pressure-preview" width="256" height="176"></canvas>
+                <div class="section-title">Pencil</div>
+                <div class="setting-group">
+                    <label for="pencil-squeeze-modifier">Squeeze</label>
+                    <select id="pencil-squeeze-modifier">
+                        <option value="off">Disabled</option>
+                        <option value="shift">Hold Shift</option>
+                        <option value="control">Hold Ctrl</option>
+                        <option value="alt">Hold Alt</option>
+                    </select>
+                </div>
+            </section>
+            <section class="panel-section pressure-curve-section">
+                <div class="section-title">Pressure</div>
+                <canvas id="pressure-preview" width="640" height="440" aria-label="Pressure curve preview"></canvas>
+                <div class="curve-readouts" aria-live="polite">
+                    <div class="curve-readout">
+                        <span class="curve-readout-label">Start</span>
+                        <span id="pressure-readout-start" class="curve-readout-value">0%</span>
+                    </div>
+                    <div class="curve-readout">
+                        <span class="curve-readout-label">Mid</span>
+                        <span id="pressure-readout-middle" class="curve-readout-value">50% -&gt; 50%</span>
+                    </div>
+                    <div class="curve-readout">
+                        <span class="curve-readout-label">Full</span>
+                        <span id="pressure-readout-end" class="curve-readout-value">100% input</span>
+                    </div>
                 </div>
                 <div class="curve-actions">
-                    <button id="btn-interpolate-middle" class="secondary-action">Interpolate Midle</button>
+                    <button id="btn-interpolate-middle" class="secondary-action">Interpolate</button>
                     <button id="btn-reset-pressure" class="secondary-action">Reset</button>
                 </div>
             </section>
             <section class="panel-section">
-                <button id="btn-fullscreen">Toggle Fullscreen</button>
+                <button id="btn-fullscreen">Fullscreen</button>
             </section>
         </div>
     </div>
