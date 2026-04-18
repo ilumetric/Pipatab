@@ -7,30 +7,22 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"syscall"
 )
 
 const version = "0.1.0"
 
+// getLocalIPs returns the preferred outbound IPv4 address (via a UDP dial
+// trick — no packet is actually sent) plus loopback as a fallback.
 func getLocalIPs() []net.IP {
-	var ips []net.IP
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err == nil {
-		defer conn.Close()
-		if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok {
+	ips := []net.IP{}
+	if conn, err := net.Dial("udp", "8.8.8.8:80"); err == nil {
+		if addr, ok := conn.LocalAddr().(*net.UDPAddr); ok && !addr.IP.IsLoopback() {
 			ips = append(ips, addr.IP)
 		}
+		conn.Close()
 	}
-	loopback := net.ParseIP("127.0.0.1")
-	has := false
-	for _, ip := range ips {
-		if ip.Equal(loopback) {
-			has = true
-			break
-		}
-	}
-	if !has {
-		ips = append(ips, loopback)
-	}
+	ips = append(ips, net.IPv4(127, 0, 0, 1))
 	return ips
 }
 
@@ -45,44 +37,40 @@ func main() {
 
 	log.Printf("Pipatab v%s starting — monitor=%d", version, *monitor)
 
-	// Log virtual screen
 	vx, vy, vw, vh := GetVirtualScreen()
 	log.Printf("Virtual screen: origin=(%d,%d) size=%dx%d", vx, vy, vw, vh)
 
-	// Enumerate & log monitors
 	monitors := EnumerateMonitors()
-	for _, m := range monitors {
-		log.Printf("  Monitor %s: %s %dx%d screen=(%d,%d) vsOffset=(%d,%d) primary=%v",
-			m.Info.ID, m.Info.Name, m.Info.Width, m.Info.Height,
-			m.Geom.Left, m.Geom.Top,
-			m.Geom.OffsetX, m.Geom.OffsetY,
-			m.Info.IsPrimary)
+	for i, m := range monitors {
+		log.Printf("  [%d] %s (%s) %dx%d screen=(%d,%d) vsOffset=(%d,%d) primary=%v",
+			i, m.Info.Name, m.Info.ID, m.Info.Width, m.Info.Height,
+			m.Geom.Left, m.Geom.Top, m.Geom.OffsetX, m.Geom.OffsetY, m.Info.IsPrimary)
 	}
 
 	addr := fmt.Sprintf("%s:%d", *bindAddress, *webPort)
 	isAny := *bindAddress == "0.0.0.0" || *bindAddress == "::"
 
+	log.Println("──────────────────────────────────────────")
 	if isAny {
-		ips := getLocalIPs()
-		log.Println("──────────────────────────────────────────")
 		log.Println("Open on your iPad:")
-		for _, ip := range ips {
-			if !ip.IsLoopback() {
+		for _, ip := range getLocalIPs() {
+			if ip.IsLoopback() {
+				log.Printf("  http://127.0.0.1:%d  (local only)", *webPort)
+			} else {
 				log.Printf("  http://%s:%d", ip, *webPort)
 			}
 		}
-		log.Printf("Local: http://127.0.0.1:%d", *webPort)
-		log.Println("──────────────────────────────────────────")
 	} else {
 		log.Printf("Server: http://%s", addr)
 	}
+	log.Println("──────────────────────────────────────────")
 
 	shutdown := make(chan struct{})
 	go func() {
 		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, os.Interrupt)
+		signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 		<-sig
-		log.Println("Ctrl+C received, shutting down...")
+		log.Println("Shutdown signal received, stopping...")
 		close(shutdown)
 	}()
 
@@ -92,3 +80,4 @@ func main() {
 		InitialMonitor: *monitor,
 	}, shutdown)
 }
+

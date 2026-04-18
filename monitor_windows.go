@@ -9,7 +9,7 @@ import (
 )
 
 var (
-	user32                = syscall.NewLazyDLL("user32.dll")
+	user32                  = syscall.NewLazyDLL("user32.dll")
 	procEnumDisplayMonitors = user32.NewProc("EnumDisplayMonitors")
 	procGetMonitorInfoW     = user32.NewProc("GetMonitorInfoW")
 	procSetProcessDPIAware  = user32.NewProc("SetProcessDPIAware")
@@ -17,10 +17,10 @@ var (
 )
 
 const (
-	smXVirtualScreen  = 76
-	smYVirtualScreen  = 77
-	smCXVirtualScreen = 78
-	smCYVirtualScreen = 79
+	smXVirtualScreen    = 76
+	smYVirtualScreen    = 77
+	smCXVirtualScreen   = 78
+	smCYVirtualScreen   = 79
 	monitorInfoFPrimary = 0x00000001
 )
 
@@ -31,6 +31,12 @@ type MonitorGeometry struct {
 	Height  uint32 // Monitor height in pixels
 	OffsetX int32  // Monitor X relative to virtual screen origin (for InjectSyntheticPointerInput)
 	OffsetY int32  // Monitor Y relative to virtual screen origin
+}
+
+// Monitor pairs public-facing info with geometry used for coordinate mapping.
+type Monitor struct {
+	Info MonitorInfo
+	Geom MonitorGeometry
 }
 
 type rect struct {
@@ -67,10 +73,7 @@ func GetVirtualScreen() (x, y, w, h int32) {
 	return
 }
 
-func EnumerateMonitors() []struct {
-	Info MonitorInfo
-	Geom MonitorGeometry
-} {
+func EnumerateMonitors() []Monitor {
 	var raw []rawMonitor
 
 	callback := syscall.NewCallback(func(hMonitor uintptr, hdcMonitor uintptr, lprcMonitor uintptr, dwData uintptr) uintptr {
@@ -78,12 +81,10 @@ func EnumerateMonitors() []struct {
 		mi.CbSize = uint32(unsafe.Sizeof(mi))
 		r, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi)))
 		if r != 0 {
-			name := syscall.UTF16ToString(mi.SzDevice[:])
-			isPrimary := (mi.DwFlags & monitorInfoFPrimary) != 0
 			raw = append(raw, rawMonitor{
-				Name:      name,
+				Name:      syscall.UTF16ToString(mi.SzDevice[:]),
 				Rect:      mi.RcMonitor,
-				IsPrimary: isPrimary,
+				IsPrimary: (mi.DwFlags & monitorInfoFPrimary) != 0,
 			})
 		}
 		return 1 // TRUE — continue enumeration
@@ -108,7 +109,7 @@ func EnumerateMonitors() []struct {
 		}
 	}
 
-	// Sort: primary first, then by position
+	// Primary first, then by position, then by name for deterministic order.
 	sort.SliceStable(raw, func(i, j int) bool {
 		a, b := raw[i], raw[j]
 		if a.IsPrimary != b.IsPrimary {
@@ -123,24 +124,14 @@ func EnumerateMonitors() []struct {
 		return a.Name < b.Name
 	})
 
-	type monitorResult struct {
-		Info MonitorInfo
-		Geom MonitorGeometry
-	}
-
-	results := make([]monitorResult, 0, len(raw))
+	out := make([]Monitor, 0, len(raw))
 	for idx, m := range raw {
 		w := uint32(m.Rect.Right - m.Rect.Left)
 		h := uint32(m.Rect.Bottom - m.Rect.Top)
-		friendlyName := friendlyMonitorName(m.Name, idx)
-
-		log.Printf("Monitor %d: %s (%s) %dx%d at (%d,%d) primary=%v",
-			idx, friendlyName, m.Name, w, h, m.Rect.Left, m.Rect.Top, m.IsPrimary)
-
-		results = append(results, monitorResult{
+		out = append(out, Monitor{
 			Info: MonitorInfo{
 				ID:        m.Name,
-				Name:      friendlyName,
+				Name:      friendlyMonitorName(m.Name, idx),
 				Width:     w,
 				Height:    h,
 				IsPrimary: m.IsPrimary,
@@ -155,21 +146,10 @@ func EnumerateMonitors() []struct {
 			},
 		})
 	}
-
-	// Convert to the expected return type
-	type result = struct {
-		Info MonitorInfo
-		Geom MonitorGeometry
-	}
-	out := make([]result, len(results))
-	for i, r := range results {
-		out[i] = result{Info: r.Info, Geom: r.Geom}
-	}
 	return out
 }
 
 func friendlyMonitorName(deviceName string, fallbackIndex int) string {
-	// Try parsing \\.\DISPLAYn
 	var n int
 	if _, err := fmt.Sscanf(deviceName, `\\.\DISPLAY%d`, &n); err == nil {
 		return fmt.Sprintf("Display %d", n)
@@ -177,10 +157,7 @@ func friendlyMonitorName(deviceName string, fallbackIndex int) string {
 	return fmt.Sprintf("Display %d", fallbackIndex+1)
 }
 
-func selectMonitorByIndex(monitors []struct {
-	Info MonitorInfo
-	Geom MonitorGeometry
-}, index int) MonitorGeometry {
+func selectMonitorByIndex(monitors []Monitor, index int) MonitorGeometry {
 	if index >= 0 && index < len(monitors) {
 		return monitors[index].Geom
 	}
@@ -189,13 +166,10 @@ func selectMonitorByIndex(monitors []struct {
 		return monitors[0].Geom
 	}
 	log.Println("No monitors found, using default 1920x1080")
-	return MonitorGeometry{Left: 0, Top: 0, Width: 1920, Height: 1080, OffsetX: 0, OffsetY: 0}
+	return MonitorGeometry{Width: 1920, Height: 1080}
 }
 
-func selectMonitorByID(monitors []struct {
-	Info MonitorInfo
-	Geom MonitorGeometry
-}, id string) MonitorGeometry {
+func selectMonitorByID(monitors []Monitor, id string) MonitorGeometry {
 	for _, m := range monitors {
 		if m.Info.ID == id {
 			return m.Geom

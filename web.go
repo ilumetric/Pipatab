@@ -1,11 +1,12 @@
 package main
 
 import (
+	"context"
 	_ "embed"
 	"log"
 	"net"
 	"net/http"
-	"net/url"
+	"time"
 )
 
 //go:embed www/templates/index.html
@@ -34,8 +35,7 @@ func RunServer(cfg ServerConfig, shutdown <-chan struct{}) {
 		if cfg.AccessCode == "" {
 			return true
 		}
-		q, _ := url.ParseQuery(r.URL.RawQuery)
-		return q.Get("access_code") == cfg.AccessCode
+		return r.URL.Query().Get("access_code") == cfg.AccessCode
 	}
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -105,5 +105,10 @@ func RunServer(cfg ServerConfig, shutdown <-chan struct{}) {
 
 	<-shutdown
 	log.Println("Shutting down server")
-	server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("Graceful shutdown failed: %v", err)
+		server.Close()
+	}
 }

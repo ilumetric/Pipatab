@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"unsafe"
@@ -119,15 +120,15 @@ type PenInjector struct {
 	squeezeModifierActive *ModifierKey // nil = none
 }
 
-func NewPenInjector(geom MonitorGeometry) *PenInjector {
-	handle, _, _ := procCreateSyntheticPointerDevice.Call(ptPen, 1, 1)
+func NewPenInjector(geom MonitorGeometry) (*PenInjector, error) {
+	handle, _, callErr := procCreateSyntheticPointerDevice.Call(ptPen, 1, 1)
 	if handle == 0 {
-		log.Fatal("Failed to create synthetic pointer device")
+		return nil, fmt.Errorf("CreateSyntheticPointerDevice failed: %v", callErr)
 	}
 	return &PenInjector{
 		deviceHandle: handle,
 		geometry:     geom,
-	}
+	}, nil
 }
 
 func (p *PenInjector) Close() {
