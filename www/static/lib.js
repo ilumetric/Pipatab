@@ -32,6 +32,9 @@ let pressureReadoutEnd;
 let reconnectTimer = null;
 let reconnectAttempt = 0;
 let heartbeatTimer = null;
+let heartbeatConsecutiveMisses = 0;
+let pendingPenBatch = [];
+let penBatchFlushFrame = null;
 let pressurePreviewFrame = null;
 let pressurePreviewResizeObserver = null;
 let activePressureHandle = null;
@@ -97,13 +100,15 @@ const TRACKPAD_MOMENTUM_BOOST = 1.22;
 const TRACKPAD_MOMENTUM_MAX_SPEED = 1.8;
 const TRACKPAD_MOMENTUM_MAX_SAMPLE_AGE_MS = 72;
 const PEN_SQUEEZE_TANGENTIAL_PRESSURE_THRESHOLD = 0.12;
-const WS_HEARTBEAT_INTERVAL_MS = 2500;
-const WS_HEARTBEAT_TIMEOUT_MS = 8000;
+const WS_HEARTBEAT_INTERVAL_MS = 5000;
+const WS_HEARTBEAT_TIMEOUT_MS = 15000;
+const WS_HEARTBEAT_MAX_CONSECUTIVE_MISSES = 2;
 const WS_POINTER_BACKPRESSURE_LIMIT_BYTES = 256 * 1024;
 const WS_CONTROL_BACKPRESSURE_LIMIT_BYTES = 192 * 1024;
 const WS_RECONNECT_BASE_DELAY_MS = 300;
 const WS_RECONNECT_MAX_DELAY_MS = 5000;
-const WS_VISIBLE_STALE_GRACE_MS = 3500;
+const WS_VISIBLE_STALE_GRACE_MS = 6000;
+const PEN_BATCH_MAX_EVENTS = 255;
 const DEFAULT_PRESSURE_CURVE = {
     startY: 0,
     middleX: 0.5,
@@ -1027,6 +1032,14 @@ function onPenPointerRawUpdate(event) {
         return;
     }
     syncPenSqueezeModifierState(e);
+    penIsInRange = true;
+    lastPenActivityAt = performance.now();
+    cancelActiveTouchInteractions();
+    // Apple Pencil samples at up to 240Hz but the engine batches multiple
+    // samples into one PointerEvent, exposing the intermediate ones via
+    // getCoalescedEvents(). Without unpacking those, strokes lose 50–75% of
+    // sub-samples and look polyline-y.
+    queueCoalescedMoveSamples(e);
 }
 function getPointerTangentialPressure(e) {
     const tangentialPressure = e
@@ -1067,24 +1080,50 @@ function onPenPointer(e) {
     if (penIsInRange) {
         cancelActiveTouchInteractions();
     }
-    const events = e.type === "pointermove" && typeof e.getCoalescedEvents === "function"
-        ? e.getCoalescedEvents()
+    // pointermove is normally handled by onPenPointerRawUpdate (with coalesced
+    // sub-sample expansion). On browsers that don't dispatch pointerrawupdate,
+    // fall through and route pointermove through the same batched path so we
+    // still capture all sub-samples via getCoalescedEvents().
+    if (e.type === "pointermove") {
+        if (supportsPointerRawUpdate()) {
+            return;
+        }
+        queueCoalescedMoveSamples(e);
+        return;
+    }
+    updatePenPressureIndicator(e, e.type);
+    const payload = buildPenPointerPayload(e, e.type);
+    if (payload === null) {
+        return;
+    }
+    // Down/up/cancel/leave are state-critical: flush any queued moves first
+    // so the terminal event arrives strictly after them.
+    flushPenBatch();
+    sendPointerPayload(payload);
+}
+let cachedSupportsPointerRawUpdate = null;
+function supportsPointerRawUpdate() {
+    if (cachedSupportsPointerRawUpdate === null) {
+        cachedSupportsPointerRawUpdate = "onpointerrawupdate" in HTMLElement.prototype;
+    }
+    return cachedSupportsPointerRawUpdate;
+}
+function queueCoalescedMoveSamples(e) {
+    const eventsWithSubSamples = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : null;
+    const samples = eventsWithSubSamples && eventsWithSubSamples.length > 0
+        ? eventsWithSubSamples
         : [e];
-    const lastEvent = events[events.length - 1];
-    if (lastEvent) {
-        updatePenPressureIndicator(lastEvent, e.type);
+    let lastSample = null;
+    for (const sample of samples) {
+        const payload = buildPenPointerPayload(sample, "pointermove");
+        if (payload === null)
+            continue;
+        queuePenBatchPayload(payload);
+        lastSample = sample;
     }
-    const pointerPayloads = events
-        .map(ev => buildPenPointerPayload(ev, e.type))
-        .filter((payload) => payload !== null);
-    if (pointerPayloads.length === 0) {
-        return;
+    if (lastSample !== null) {
+        updatePenPressureIndicator(lastSample, "pointermove");
     }
-    if (pointerPayloads.length === 1) {
-        sendPointerPayload(pointerPayloads[0]);
-        return;
-    }
-    sendPointerEventsPayload(pointerPayloads);
 }
 function updatePenPressureIndicator(e, eventType) {
     const hovering = e.pressure === 0 && eventType !== "pointerdown";
@@ -1134,25 +1173,6 @@ function buildPenPointerPayload(e, eventType) {
         buttons,
         hovering,
     };
-}
-function sendPointerEventsPayload(pointerEvents) {
-    if (!ws || ws.readyState !== WebSocket.OPEN || pointerEvents.length === 0) {
-        return;
-    }
-    // Drop old pointermove events if buffer is congested
-    const eventsToSend = pointerEvents[0].event_type === "pointermove" &&
-        ws.bufferedAmount > WS_POINTER_BACKPRESSURE_LIMIT_BYTES
-        ? pointerEvents.slice(-1)
-        : pointerEvents;
-    const count = Math.min(eventsToSend.length, 255);
-    const buf = new ArrayBuffer(2 + count * BINARY_EVENT_SIZE);
-    const view = new DataView(buf);
-    view.setUint8(0, BINARY_MSG_POINTER_EVENTS);
-    view.setUint8(1, count);
-    for (let i = 0; i < count; i++) {
-        writeBinaryPointerEvent(view, 2 + i * BINARY_EVENT_SIZE, eventsToSend[i]);
-    }
-    ws.send(buf);
 }
 function onTouchPointer(e) {
     e.preventDefault();
@@ -1685,10 +1705,60 @@ function sendPointerPayload(pointerEvent) {
     if (!ws || ws.readyState !== WebSocket.OPEN) {
         return;
     }
+    if (pointerEvent.event_type === "pointermove" &&
+        ws.bufferedAmount > WS_POINTER_BACKPRESSURE_LIMIT_BYTES) {
+        return;
+    }
     const buf = new ArrayBuffer(1 + BINARY_EVENT_SIZE);
     const view = new DataView(buf);
     view.setUint8(0, BINARY_MSG_POINTER_EVENT);
     writeBinaryPointerEvent(view, 1, pointerEvent);
+    ws.send(buf);
+}
+function queuePenBatchPayload(payload) {
+    pendingPenBatch.push(payload);
+    if (pendingPenBatch.length >= PEN_BATCH_MAX_EVENTS) {
+        flushPenBatch();
+        return;
+    }
+    if (penBatchFlushFrame === null) {
+        penBatchFlushFrame = window.requestAnimationFrame(flushPenBatch);
+    }
+}
+function discardPenBatch() {
+    if (penBatchFlushFrame !== null) {
+        window.cancelAnimationFrame(penBatchFlushFrame);
+        penBatchFlushFrame = null;
+    }
+    pendingPenBatch = [];
+}
+function flushPenBatch() {
+    if (penBatchFlushFrame !== null) {
+        window.cancelAnimationFrame(penBatchFlushFrame);
+        penBatchFlushFrame = null;
+    }
+    if (pendingPenBatch.length === 0) {
+        return;
+    }
+    const batch = pendingPenBatch;
+    pendingPenBatch = [];
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return;
+    }
+    if (ws.bufferedAmount > WS_POINTER_BACKPRESSURE_LIMIT_BYTES) {
+        return;
+    }
+    if (batch.length === 1) {
+        sendPointerPayload(batch[0]);
+        return;
+    }
+    const buf = new ArrayBuffer(2 + batch.length * BINARY_EVENT_SIZE);
+    const view = new DataView(buf);
+    view.setUint8(0, BINARY_MSG_POINTER_EVENTS);
+    view.setUint8(1, batch.length);
+    for (let i = 0; i < batch.length; i++) {
+        writeBinaryPointerEvent(view, 2 + i * BINARY_EVENT_SIZE, batch[i]);
+    }
     ws.send(buf);
 }
 function writeBinaryPointerEvent(view, offset, e) {
@@ -1715,12 +1785,14 @@ function sendJsonMessage(value, allowWhenCongested = true) {
 }
 function recordServerActivity() {
     lastServerActivityAt = performance.now();
+    heartbeatConsecutiveMisses = 0;
 }
 function stopHeartbeat() {
     if (heartbeatTimer !== null) {
         window.clearInterval(heartbeatTimer);
         heartbeatTimer = null;
     }
+    heartbeatConsecutiveMisses = 0;
 }
 function startHeartbeat(socket) {
     stopHeartbeat();
@@ -1735,9 +1807,13 @@ function startHeartbeat(socket) {
         }
         const now = performance.now();
         if (now - lastServerActivityAt > WS_HEARTBEAT_TIMEOUT_MS) {
-            setConnectionVisualState("reconnecting", "The connection stalled. Reconnecting to the desktop...");
-            socket.close();
-            return;
+            heartbeatConsecutiveMisses += 1;
+            if (heartbeatConsecutiveMisses >= WS_HEARTBEAT_MAX_CONSECUTIVE_MISSES) {
+                setConnectionVisualState("reconnecting", "The connection stalled. Reconnecting to the desktop...");
+                socket.close();
+                return;
+            }
+            // First miss — assume transient and try once more before giving up.
         }
         socket.send(JSON.stringify("Ping"));
     }, WS_HEARTBEAT_INTERVAL_MS);
@@ -1890,6 +1966,7 @@ function connect() {
         }
         ws = null;
         stopHeartbeat();
+        discardPenBatch();
         cancelActiveTouchInteractions();
         setLivePressureIndicator(0, 0, false);
         setConnectionVisualState(navigator.onLine ? "reconnecting" : "offline", navigator.onLine

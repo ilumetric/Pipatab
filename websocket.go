@@ -12,23 +12,37 @@ import (
 )
 
 const (
-	// How long to wait for a read before assuming the client is gone.
-	wsReadTimeout = 15 * time.Second
+	// How long to wait for a read before assuming the client is gone. Sized
+	// generously: client sends an app-level Ping every 5s, and the server's
+	// transport-level ping (every 5s) triggers a browser auto-pong that resets
+	// the read deadline via PongHandler. 30s gives ~6 round-trips of margin.
+	wsReadTimeout = 30 * time.Second
 	// How long a single write may take before we give up.
 	wsWriteTimeout = 10 * time.Second
 	// Server-side ping interval (transport-level, on top of app-level Ping/Pong).
 	wsPingInterval = 5 * time.Second
-	// Bounded queue of outbound messages. Larger queues hide back-pressure; a
-	// smaller bound forces the sender to drop or close.
-	wsOutboundQueue = 64
+	// Bounded queue of outbound messages. Bigger than strictly needed so a
+	// transient writer stall doesn't tear down the session — this queue sees
+	// only Pong replies and config acknowledgements, never pen events.
+	wsOutboundQueue = 256
+	// Bounded queue of injection tasks. The reader pushes tasks here; the
+	// dedicated worker (locked to a single OS thread) drains and executes them.
+	// Sized to absorb ~1 second of 240Hz pen events plus headroom.
+	wsInjectQueue = 512
 )
 
 var wsUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// injectionTask is a closure that runs on the injector's locked OS thread.
+// Every operation that mutates PenInjector state must go through this channel.
+type injectionTask func(*PenInjector)
+
 // HandleWebSocket upgrades an HTTP connection to WebSocket and runs the
-// client session. Pen injection runs on a locked OS thread.
+// client session. The injector worker runs on its own locked OS thread; the
+// reader goroutine stays free to service ping/pong without blocking on
+// Win32 syscalls.
 func HandleWebSocket(w http.ResponseWriter, r *http.Request, initialMonitor int) {
 	conn, err := wsUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -43,21 +57,42 @@ func HandleWebSocket(w http.ResponseWriter, r *http.Request, initialMonitor int)
 }
 
 func runSession(conn *websocket.Conn, remoteAddr string, initialMonitor int) {
-	// Win32 synthetic pointer device is thread-bound — lock the whole session
-	// (reader + injection) to a single OS thread.
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
 	defer conn.Close()
 
 	monitors := EnumerateMonitors()
 	geom := selectMonitorByIndex(monitors, initialMonitor)
 
-	injector, err := NewPenInjector(geom)
-	if err != nil {
+	taskCh := make(chan injectionTask, wsInjectQueue)
+	workerReady := make(chan error, 1)
+	workerDone := make(chan struct{})
+
+	// Injection worker: owns the PenInjector exclusively, locks to one OS
+	// thread (Win32 synthetic pointer device is thread-bound), and drains
+	// taskCh until it's closed.
+	go func() {
+		defer close(workerDone)
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+
+		injector, err := NewPenInjector(geom)
+		if err != nil {
+			workerReady <- err
+			return
+		}
+		workerReady <- nil
+		defer injector.Close()
+
+		for task := range taskCh {
+			task(injector)
+		}
+	}()
+
+	if err := <-workerReady; err != nil {
 		log.Printf("Failed to create pen injector for %s: %v", remoteAddr, err)
+		close(taskCh)
+		<-workerDone
 		return
 	}
-	defer injector.Close()
 
 	infos := make([]MonitorInfo, len(monitors))
 	for i, m := range monitors {
@@ -93,10 +128,20 @@ func runSession(conn *websocket.Conn, remoteAddr string, initialMonitor int) {
 		select {
 		case outCh <- data:
 		default:
-			// Queue full — client is too slow; close session.
-			log.Printf("Outbound queue full for %s, closing", remoteAddr)
-			conn.Close()
+			// Outbound queue saturated. With cap=256 this means the writer has
+			// been stuck for a long time — the client is effectively gone.
+			// Drop this message rather than block the reader.
+			log.Printf("Outbound queue full for %s, dropping %s", remoteAddr, tag)
 		}
+	}
+
+	// submitTask hands an injection task to the worker. Pen events are bursty
+	// at up to ~240 Hz; we block briefly on a full queue rather than drop,
+	// because dropping pen samples mid-stroke produces visible polylines.
+	// If the worker is genuinely stuck the read deadline will fire and the
+	// session tears down cleanly.
+	submitTask := func(task injectionTask) {
+		taskCh <- task
 	}
 
 	// Pong handler extends the read deadline every time a transport-level
@@ -144,21 +189,23 @@ func runSession(conn *websocket.Conn, remoteAddr string, initialMonitor int) {
 
 		switch msgType {
 		case websocket.BinaryMessage:
-			handleBinaryFrame(data, injector)
+			handleBinaryFrame(data, submitTask)
 		case websocket.TextMessage:
-			handleTextFrame(data, injector, sendMsg)
+			handleTextFrame(data, submitTask, sendMsg)
 		}
 	}
 
-	// Cleanly shut down ping ticker and writer.
+	// Cleanly shut down ping ticker, injection worker, and writer.
 	close(pingStop)
 	<-pingDone
+	close(taskCh)
+	<-workerDone
 	close(outCh)
 	writerWg.Wait()
 	log.Printf("WebSocket client disconnected from %s", remoteAddr)
 }
 
-func handleTextFrame(data []byte, injector *PenInjector, sendMsg func(string, any)) {
+func handleTextFrame(data []byte, submit func(injectionTask), sendMsg func(string, any)) {
 	var msg MessageInbound
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return
@@ -168,47 +215,47 @@ func handleTextFrame(data []byte, injector *PenInjector, sendMsg func(string, an
 	case "PointerEvent":
 		var ev PointerEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.Inject(&ev)
+			submit(func(inj *PenInjector) { inj.Inject(&ev) })
 		}
 	case "PointerEvents":
 		var events []PointerEvent
 		if json.Unmarshal(msg.Body, &events) == nil {
-			injectPointerBatch(injector, events)
+			submit(func(inj *PenInjector) { injectPointerBatch(inj, events) })
 		}
 	case "RelativeMouseMove":
 		var ev RelativeMouseMoveEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.MoveMouseRelative(&ev)
+			submit(func(inj *PenInjector) { inj.MoveMouseRelative(&ev) })
 		}
 	case "WheelEvent":
 		var ev WheelEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.ScrollWheel(&ev)
+			submit(func(inj *PenInjector) { inj.ScrollWheel(&ev) })
 		}
 	case "ZoomEvent":
 		var ev ZoomEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.Zoom(&ev)
+			submit(func(inj *PenInjector) { inj.Zoom(&ev) })
 		}
 	case "ZoomState":
 		var ev ZoomStateEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.SetZoomModifier(&ev)
+			submit(func(inj *PenInjector) { inj.SetZoomModifier(&ev) })
 		}
 	case "ModifierState":
 		var ev ModifierStateEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.SetModifier(&ev)
+			submit(func(inj *PenInjector) { inj.SetModifier(&ev) })
 		}
 	case "MouseClick":
 		var ev MouseClickEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.ClickMouseButton(&ev)
+			submit(func(inj *PenInjector) { inj.ClickMouseButton(&ev) })
 		}
 	case "MouseButton":
 		var ev MouseButtonEvent
 		if json.Unmarshal(msg.Body, &ev) == nil {
-			injector.SetMouseButton(&ev)
+			submit(func(inj *PenInjector) { inj.SetMouseButton(&ev) })
 		}
 	case "RequestMonitorList":
 		mons := EnumerateMonitors()
@@ -224,7 +271,7 @@ func handleTextFrame(data []byte, injector *PenInjector, sendMsg func(string, an
 			g := selectMonitorByID(mons, id)
 			log.Printf("Monitor switched to %s: %dx%d screen=(%d,%d) vsOffset=(%d,%d)",
 				id, g.Width, g.Height, g.Left, g.Top, g.OffsetX, g.OffsetY)
-			injector.SetGeometry(g)
+			submit(func(inj *PenInjector) { inj.SetGeometry(g) })
 			sendMsg("ConfigOk", nil)
 		}
 	case "Ping":
@@ -232,30 +279,18 @@ func handleTextFrame(data []byte, injector *PenInjector, sendMsg func(string, an
 	}
 }
 
-// injectPointerBatch deduplicates consecutive pointermove events to only the
-// last one (it carries the final position & pressure). InjectSyntheticPointerInput
-// has a 0.1 ms minimum interval between calls; injecting every coalesced move
-// in a tight loop triggers ERROR_NOT_READY.
+// injectPointerBatch injects every event in the batch in arrival order. We
+// intentionally do NOT deduplicate consecutive pointermove events: the
+// intermediate positions define stroke shape, and dropping them turns a smooth
+// curve into a polyline. InjectSyntheticPointerInput is a ~50µs syscall so
+// 8–16 calls per WebSocket frame is well within budget.
 func injectPointerBatch(injector *PenInjector, events []PointerEvent) {
-	var lastMove *PointerEvent
 	for i := range events {
-		ev := &events[i]
-		if ev.EventType == PointerMove {
-			lastMove = ev
-			continue
-		}
-		if lastMove != nil {
-			injector.Inject(lastMove)
-			lastMove = nil
-		}
-		injector.Inject(ev)
-	}
-	if lastMove != nil {
-		injector.Inject(lastMove)
+		injector.Inject(&events[i])
 	}
 }
 
-func handleBinaryFrame(data []byte, injector *PenInjector) {
+func handleBinaryFrame(data []byte, submit func(injectionTask)) {
 	if len(data) == 0 {
 		return
 	}
@@ -263,7 +298,7 @@ func handleBinaryFrame(data []byte, injector *PenInjector) {
 	switch data[0] {
 	case BinaryMsgPointerEvent:
 		if ev, ok := parseBinaryPointerEvent(data[1:]); ok {
-			injector.Inject(ev)
+			submit(func(inj *PenInjector) { inj.Inject(ev) })
 		}
 	case BinaryMsgPointerEvents:
 		if len(data) < 2 {
@@ -280,6 +315,6 @@ func handleBinaryFrame(data []byte, injector *PenInjector) {
 				events = append(events, *ev)
 			}
 		}
-		injectPointerBatch(injector, events)
+		submit(func(inj *PenInjector) { injectPointerBatch(inj, events) })
 	}
 }

@@ -97,9 +97,9 @@ type pointerPenInfo struct {
 // pointerTypeInfo matches POINTER_TYPE_INFO. The 'type' field is followed by
 // implicit padding (4 bytes) to align the pen info union to 8 bytes.
 type pointerTypeInfo struct {
-	Type    uint32          // offset 0
-	_       uint32          // offset 4 (padding)
-	PenInfo pointerPenInfo  // offset 8
+	Type    uint32         // offset 0
+	_       uint32         // offset 4 (padding)
+	PenInfo pointerPenInfo // offset 8
 	// Total: 128 bytes
 }
 
@@ -254,20 +254,31 @@ func (p *PenInjector) Inject(event *PointerEvent) {
 	tiltX := clampI32(event.TiltX, -90, 90)
 	tiltY := clampI32(event.TiltY, -90, 90)
 
-	p.lastX = x
-	p.lastY = y
-
 	// State machine recovery
 	isDownEvent := (pointerFlags & pointerFlagDown) != 0
 	isUpEvent := (pointerFlags & pointerFlagUp) != 0
 	wantsContact := (pointerFlags & pointerFlagInContact) != 0
 
+	// Win32 requires the UP-frame ptPixelLocation to match the previous UPDATE
+	// frame's position exactly. iPad pointerup events sometimes arrive at a
+	// fractionally-different coordinate than the last pointermove (sub-pixel
+	// rounding), and a mismatch makes Win32 return ERROR_INVALID_PARAMETER and
+	// cancel the active contact — which then cascades through every subsequent
+	// INCONTACT|UPDATE frame. Reuse the last known-good position for UP.
+	if isUpEvent && p.penInContact {
+		x = p.lastX
+		y = p.lastY
+	}
+
 	if p.penInContact && (isDownEvent || (!wantsContact && !isUpEvent)) {
-		p.injectPenUp(x, y)
+		// Implicit-UP fired by state recovery must also use the previous
+		// UPDATE position (lastX/lastY), not the incoming event's position.
+		p.injectPenUp(p.lastX, p.lastY)
 	}
 
 	if !isDownEvent && !isUpEvent && wantsContact && !p.penInContact {
 		pointerFlags = (pointerFlags & ^uint32(pointerFlagUpdate)) | pointerFlagDown
+		isDownEvent = true
 	}
 
 	if isUpEvent && !p.penInContact {
@@ -299,16 +310,28 @@ func (p *PenInjector) Inject(event *PointerEvent) {
 		1,
 	)
 	if r == 0 {
-		log.Printf("InjectSyntheticPointerInput failed: %v (flags=0x%08X, pos=(%d,%d), bounds=[%d..%d, %d..%d])",
-			lastErr, pointerFlags, x, y,
+		log.Printf("InjectSyntheticPointerInput failed: %v (event=%v, flags=0x%08X, pos=(%d,%d), bounds=[%d..%d, %d..%d], inContact=%v)",
+			lastErr, event.EventType, pointerFlags, x, y,
 			p.geometry.OffsetX, p.geometry.OffsetX+int32(p.geometry.Width)-1,
-			p.geometry.OffsetY, p.geometry.OffsetY+int32(p.geometry.Height)-1)
-	} else {
-		if (pointerFlags & pointerFlagDown) != 0 {
-			p.penInContact = true
-		} else if (pointerFlags & pointerFlagUp) != 0 {
-			p.penInContact = false
-		}
+			p.geometry.OffsetY, p.geometry.OffsetY+int32(p.geometry.Height)-1,
+			p.penInContact)
+		// Win32 may have cancelled the active contact (it does so on UP-coord
+		// mismatch, and apparently on other validation failures too). Drop our
+		// belief that the pen is still down so the next INCONTACT event hits
+		// the orphan-UPDATE→DOWN recovery path above and re-establishes contact.
+		p.penInContact = false
+		return
+	}
+
+	// Track the last position Win32 actually accepted, so subsequent UP frames
+	// can reuse it byte-for-byte.
+	p.lastX = x
+	p.lastY = y
+
+	if isDownEvent {
+		p.penInContact = true
+	} else if isUpEvent {
+		p.penInContact = false
 	}
 }
 
