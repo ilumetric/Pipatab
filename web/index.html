@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#000000">
+    <title>Pipatab</title>
+    <link rel="manifest" href="manifest.webmanifest">
+    <link rel="apple-touch-icon" href="icon.svg">
+    <link rel="stylesheet" href="app.css">
+    <script type="module" src="app.js"></script>
+</head>
+
+<body>
+    <canvas id="pad" aria-label="Pen input surface"></canvas>
+
+    <div id="hud">
+        <div id="status-pill" role="status">
+            <span id="status-dot" class="offline"></span>
+            <span id="status-latency"></span>
+        </div>
+        <button id="btn-area" aria-label="Adjust active area">
+            <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+                <rect x="5" y="5" width="14" height="14" rx="2" stroke-dasharray="3.5 3" />
+                <circle cx="5" cy="5" r="2.2" fill="currentColor" stroke="none" />
+                <circle cx="19" cy="19" r="2.2" fill="currentColor" stroke="none" />
+            </svg>
+        </button>
+        <button id="btn-panel" aria-label="Settings">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round">
+                <circle cx="12" cy="12" r="3.2" />
+                <path
+                    d="M19.4 13.5a7.6 7.6 0 0 0 0-3l2-1.5-2-3.4-2.4.9a7.6 7.6 0 0 0-2.6-1.5L14 2.5h-4L9.6 5a7.6 7.6 0 0 0-2.6 1.5l-2.4-.9-2 3.4 2 1.5a7.6 7.6 0 0 0 0 3l-2 1.5 2 3.4 2.4-.9a7.6 7.6 0 0 0 2.6 1.5l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 2.6-1.5l2.4.9 2-3.4Z" />
+            </svg>
+        </button>
+    </div>
+
+    <div id="area-toolbar">
+        <span class="area-hint">Drag corners to resize · drag inside to move</span>
+        <button id="btn-area-reset">Reset</button>
+        <button id="btn-area-done">Done</button>
+    </div>
+
+    <div id="overlay" class="visible">
+        <div class="overlay-card">
+            <div id="overlay-spinner" class="spinner"></div>
+            <h1 id="overlay-title">Connecting</h1>
+            <p id="overlay-text">Looking for the Pipatab server…</p>
+            <button id="btn-overlay-action" class="primary-button hidden">Take control</button>
+            <div class="overlay-host" id="overlay-host"></div>
+        </div>
+    </div>
+
+    <div id="panel-backdrop"></div>
+    <aside id="panel" aria-label="Settings panel">
+        <header class="panel-header">
+            <h2>Pipatab</h2>
+            <button id="btn-panel-close" aria-label="Close settings">
+                <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.2"
+                    stroke-linecap="round">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+            </button>
+        </header>
+
+        <div class="panel-scroll">
+            <section class="card" id="card-connection">
+                <div class="card-title">Connection</div>
+                <div class="row">
+                    <span class="row-label">Status</span>
+                    <span class="row-value" id="conn-status">—</span>
+                </div>
+                <div class="row">
+                    <span class="row-label">Server</span>
+                    <span class="row-value mono" id="conn-host">—</span>
+                </div>
+                <div class="row">
+                    <span class="row-label">Latency</span>
+                    <span class="row-value mono" id="conn-latency">—</span>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-title">Display</div>
+                <div id="monitor-map" aria-label="Monitor layout"></div>
+                <div id="monitor-list"></div>
+                <p class="hint">Tap the map to use a single display. Check several in the list to map the pad
+                    across them.</p>
+            </section>
+
+            <section class="card">
+                <div class="card-title">Pressure</div>
+                <canvas id="curve-editor" aria-label="Pressure curve editor"></canvas>
+                <div class="pressure-live">
+                    <div class="pressure-track">
+                        <div class="pressure-fill raw" id="pressure-raw"></div>
+                    </div>
+                    <div class="pressure-track">
+                        <div class="pressure-fill mapped" id="pressure-mapped"></div>
+                    </div>
+                    <div class="pressure-legend"><span>raw</span><span>output</span></div>
+                </div>
+                <div class="segmented" id="curve-presets" role="group" aria-label="Pressure presets">
+                    <button data-preset="soft">Soft</button>
+                    <button data-preset="linear">Linear</button>
+                    <button data-preset="firm">Firm</button>
+                </div>
+            </section>
+
+            <section class="card">
+                <div class="card-title">Input</div>
+                <div class="row">
+                    <span class="row-label">Pencil hover moves cursor</span>
+                    <button id="toggle-hover" class="switch" role="switch" aria-checked="true"><span></span></button>
+                </div>
+                <div class="row">
+                    <span class="row-label">Keep screen awake</span>
+                    <span class="row-value" id="wakelock-status">—</span>
+                </div>
+                <button id="btn-fullscreen" class="secondary-button">Enter Fullscreen</button>
+                <p class="hint">For the best experience add this page to the Home Screen — it opens fullscreen
+                    without Safari bars.</p>
+            </section>
+
+            <footer class="panel-footer" id="panel-version"></footer>
+        </div>
+    </aside>
+</body>
+
+</html>

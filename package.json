@@ -1,0 +1,13 @@
+{
+    "name": "pipatab-web",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "build": "esbuild web/src/main.ts --bundle --format=esm --target=safari16 --minify --outfile=web/dist/app.js",
+        "typecheck": "tsc --noEmit"
+    },
+    "devDependencies": {
+        "esbuild": "^0.25.0",
+        "typescript": "^5.7.0"
+    }
+}

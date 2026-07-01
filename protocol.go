@@ -1,255 +1,106 @@
 package main
 
-import (
-	"encoding/binary"
-	"encoding/json"
-	"fmt"
-	"math"
+import "encoding/binary"
+
+// Binary pen protocol (client → server, WebSocket binary frames).
+//
+// Frame layout:
+//   [0]    frame type (0x01 = pen event batch)
+//   [1]    event count (1..255)
+//   [2..]  count × 12-byte events
+//
+// Event layout (little-endian):
+//   [0]    event type   (0=down 1=up 2=move 3=cancel 4=enter 5=leave)
+//   [1]    flags        (bit0=contact bit1=barrel bit2=eraser)
+//   [2:4]  x            uint16, normalized 0..65535 across the mapped monitor
+//   [4:6]  y            uint16, normalized 0..65535
+//   [6:8]  pressure     uint16, normalized 0..65535 (curve already applied client-side)
+//   [8]    tiltX        int8, degrees -90..90
+//   [9]    tiltY        int8, degrees -90..90
+//   [10:12] twist       uint16, degrees 0..359
+//
+// Fixed-point u16 coordinates give sub-0.1px resolution on any monitor up to
+// 6K wide while keeping the whole event at 12 bytes — a full 240 Hz second of
+// pen data is under 3 KB/s.
+
+const (
+	frameTypePenBatch byte = 0x01
+
+	penEventSize = 12
+
+	evDown   byte = 0
+	evUp     byte = 1
+	evMove   byte = 2
+	evCancel byte = 3
+	evEnter  byte = 4
+	evLeave  byte = 5
+
+	flagContact byte = 1 << 0
+	flagBarrel  byte = 1 << 1
+	flagEraser  byte = 1 << 2
 )
 
-// --- Inbound (client → server) ---
-
-// MessageInbound is a tagged-union JSON message from the client.
-// Rust serde produces e.g. {"PointerEvent":{...}} or "RequestMonitorList".
-type MessageInbound struct {
-	Tag  string
-	Body json.RawMessage
+type PenEvent struct {
+	Type     byte
+	Flags    byte
+	X, Y     uint16
+	Pressure uint16
+	TiltX    int8
+	TiltY    int8
+	Twist    uint16
 }
 
-func (m *MessageInbound) UnmarshalJSON(data []byte) error {
-	// Try simple string first: "RequestMonitorList", "Ping"
-	var s string
-	if err := json.Unmarshal(data, &s); err == nil {
-		m.Tag = s
-		m.Body = nil
+func (e *PenEvent) Contact() bool { return e.Flags&flagContact != 0 }
+func (e *PenEvent) Barrel() bool  { return e.Flags&flagBarrel != 0 }
+func (e *PenEvent) Eraser() bool  { return e.Flags&flagEraser != 0 }
+
+// ParsePenBatch decodes a binary pen frame into events, reusing buf when it
+// has enough capacity. Returns nil for malformed frames.
+func ParsePenBatch(data []byte, buf []PenEvent) []PenEvent {
+	if len(data) < 2 || data[0] != frameTypePenBatch {
 		return nil
 	}
-	// Otherwise it is an object with one key
-	var obj map[string]json.RawMessage
-	if err := json.Unmarshal(data, &obj); err != nil {
-		return fmt.Errorf("invalid inbound message: %s", string(data))
-	}
-	for k, v := range obj {
-		m.Tag = k
-		m.Body = v
+	count := int(data[1])
+	if count == 0 || len(data) < 2+count*penEventSize {
 		return nil
 	}
-	return fmt.Errorf("empty inbound message object")
-}
 
-// --- Outbound (server → client) ---
-
-type MonitorInfo struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Width     uint32 `json:"width"`
-	Height    uint32 `json:"height"`
-	IsPrimary bool   `json:"is_primary"`
-}
-
-func marshalOutbound(tag string, payload any) ([]byte, error) {
-	if payload == nil {
-		return json.Marshal(tag)
+	events := buf[:0]
+	for i := 0; i < count; i++ {
+		b := data[2+i*penEventSize:]
+		evType := b[0]
+		if evType > evLeave {
+			continue
+		}
+		events = append(events, PenEvent{
+			Type:     evType,
+			Flags:    b[1],
+			X:        binary.LittleEndian.Uint16(b[2:4]),
+			Y:        binary.LittleEndian.Uint16(b[4:6]),
+			Pressure: binary.LittleEndian.Uint16(b[6:8]),
+			TiltX:    int8(b[8]),
+			TiltY:    int8(b[9]),
+			Twist:    binary.LittleEndian.Uint16(b[10:12]),
+		})
 	}
-	return json.Marshal(map[string]any{tag: payload})
+	return events
 }
 
-func outboundError(msg string) ([]byte, error) {
-	return marshalOutbound("Error", msg)
+// --- Control protocol (JSON over WebSocket text frames) ---------------------
+
+// Client → server control messages.
+type controlMessage struct {
+	Type       string   `json:"type"`
+	MonitorIDs []string `json:"monitorIds,omitempty"` // for "selectMonitors"
+	T          int64    `json:"t,omitempty"`          // client timestamp echo, for "ping"
 }
 
-// --- Pointer events ---
-
-type PointerEventType int
-
-const (
-	PointerDown PointerEventType = iota
-	PointerUp
-	PointerCancel
-	PointerMove
-	PointerEnter
-	PointerLeave
-)
-
-type Button uint8
-
-const (
-	ButtonNone      Button = 0x00
-	ButtonPrimary   Button = 0x01
-	ButtonSecondary Button = 0x02
-	ButtonEraser    Button = 0x20
-)
-
-type PointerEvent struct {
-	EventType PointerEventType
-	PointerID int64
-	Timestamp uint64
-	IsPrimary bool
-	X         float64
-	Y         float64
-	Pressure  float64
-	TiltX     int32
-	TiltY     int32
-	Twist     int32
-	Btn       Button
-	Buttons   Button
-	Hovering  bool
-}
-
-func (e *PointerEvent) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		EventType string  `json:"event_type"`
-		PointerID int64   `json:"pointer_id"`
-		Timestamp uint64  `json:"timestamp"`
-		IsPrimary bool    `json:"is_primary"`
-		X         float64 `json:"x"`
-		Y         float64 `json:"y"`
-		Pressure  float64 `json:"pressure"`
-		TiltX     int32   `json:"tilt_x"`
-		TiltY     int32   `json:"tilt_y"`
-		Twist     int32   `json:"twist"`
-		Button    uint8   `json:"button"`
-		Buttons   uint8   `json:"buttons"`
-		Hovering  bool    `json:"hovering"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	switch raw.EventType {
-	case "pointerdown":
-		e.EventType = PointerDown
-	case "pointerup":
-		e.EventType = PointerUp
-	case "pointercancel":
-		e.EventType = PointerCancel
-	case "pointermove":
-		e.EventType = PointerMove
-	case "pointerenter":
-		e.EventType = PointerEnter
-	case "pointerleave":
-		e.EventType = PointerLeave
-	default:
-		return fmt.Errorf("unknown event_type: %s", raw.EventType)
-	}
-	e.PointerID = raw.PointerID
-	e.Timestamp = raw.Timestamp
-	e.IsPrimary = raw.IsPrimary
-	e.X = raw.X
-	e.Y = raw.Y
-	e.Pressure = raw.Pressure
-	e.TiltX = raw.TiltX
-	e.TiltY = raw.TiltY
-	e.Twist = raw.Twist
-	e.Btn = Button(raw.Button)
-	e.Buttons = Button(raw.Buttons)
-	e.Hovering = raw.Hovering
-	return nil
-}
-
-type RelativeMouseMoveEvent struct {
-	DX        int32  `json:"dx"`
-	DY        int32  `json:"dy"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-type WheelEvent struct {
-	DX        int32  `json:"dx"`
-	DY        int32  `json:"dy"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-type ZoomEvent struct {
-	Delta     int32  `json:"delta"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-type ZoomStateEvent struct {
-	Active    bool   `json:"active"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-type ModifierKey string
-
-const (
-	ModifierShift   ModifierKey = "shift"
-	ModifierControl ModifierKey = "control"
-	ModifierAlt     ModifierKey = "alt"
-)
-
-type ModifierStateEvent struct {
-	Modifier  ModifierKey `json:"modifier"`
-	Active    bool        `json:"active"`
-	Timestamp uint64      `json:"timestamp"`
-}
-
-type MouseClickEvent struct {
-	Button    uint8  `json:"button"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-type MouseButtonEvent struct {
-	Button    uint8  `json:"button"`
-	Pressed   bool   `json:"pressed"`
-	Timestamp uint64 `json:"timestamp"`
-}
-
-// --- Binary pointer event protocol ---
-
-const (
-	BinaryMsgPointerEvent  byte = 0x01
-	BinaryMsgPointerEvents byte = 0x02
-	BinaryEventSize             = 18
-)
-
-func parseBinaryPointerEvent(data []byte) (*PointerEvent, bool) {
-	if len(data) < BinaryEventSize {
-		return nil, false
-	}
-
-	var eventType PointerEventType
-	switch data[0] {
-	case 0:
-		eventType = PointerDown
-	case 1:
-		eventType = PointerUp
-	case 2:
-		eventType = PointerCancel
-	case 3:
-		eventType = PointerMove
-	case 4:
-		eventType = PointerEnter
-	case 5:
-		eventType = PointerLeave
-	default:
-		return nil, false
-	}
-
-	flags := data[1]
-	isPrimary := (flags & 1) != 0
-	hovering := (flags & 2) != 0
-	btn := Button(data[2])
-	buttons := Button(data[3])
-	x := float64(math.Float32frombits(binary.LittleEndian.Uint32(data[4:8])))
-	y := float64(math.Float32frombits(binary.LittleEndian.Uint32(data[8:12])))
-	pressureRaw := binary.LittleEndian.Uint16(data[12:14])
-	pressure := float64(pressureRaw) / 1024.0
-	tiltX := int32(int8(data[14]))
-	tiltY := int32(int8(data[15]))
-	twist := int32(binary.LittleEndian.Uint16(data[16:18]))
-
-	return &PointerEvent{
-		EventType: eventType,
-		PointerID: 0,
-		Timestamp: 0,
-		IsPrimary: isPrimary,
-		X:         x,
-		Y:         y,
-		Pressure:  pressure,
-		TiltX:     tiltX,
-		TiltY:     tiltY,
-		Twist:     twist,
-		Btn:       btn,
-		Buttons:   buttons,
-		Hovering:  hovering,
-	}, true
+// Server → client messages.
+type serverMessage struct {
+	Type       string    `json:"type"`
+	Version    string    `json:"version,omitempty"`
+	Monitors   []Monitor `json:"monitors,omitempty"`
+	MonitorIDs []string  `json:"monitorIds,omitempty"`
+	T          int64     `json:"t,omitempty"`
+	Message    string    `json:"message,omitempty"`
 }

@@ -1,0 +1,630 @@
+/* Pipatab — iPad tablet surface. Dark, minimal, iPadOS-flavored. */
+
+:root {
+    --bg: #000;
+    --surface: rgba(28, 28, 30, 0.92);
+    --surface-2: #2c2c2e;
+    --hairline: rgba(255, 255, 255, 0.09);
+    --text: #f2f2f7;
+    --text-dim: #98989f;
+    --accent: #0a84ff;
+    --accent-soft: rgba(10, 132, 255, 0.22);
+    --green: #30d158;
+    --red: #ff453a;
+    --amber: #ffd60a;
+    --radius: 16px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: fixed;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+}
+
+/* ── Drawing surface ─────────────────────────────────────────────────────── */
+
+#pad {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: none;
+}
+
+/* ── HUD ─────────────────────────────────────────────────────────────────── */
+
+#hud {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    right: calc(env(safe-area-inset-right, 0px) + 12px);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    z-index: 30;
+    transition: opacity 0.4s ease;
+}
+
+#hud.dimmed {
+    opacity: 0.25;
+}
+
+#status-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+    min-height: 34px;
+}
+
+#status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex: none;
+    transition: background 0.25s ease;
+}
+
+#status-dot.online {
+    background: var(--green);
+    box-shadow: 0 0 8px rgba(48, 209, 88, 0.7);
+}
+
+#status-dot.connecting {
+    background: var(--amber);
+    animation: pulse 1.1s ease-in-out infinite;
+}
+
+#status-dot.offline,
+#status-dot.replaced {
+    background: var(--red);
+}
+
+@keyframes pulse {
+    50% {
+        opacity: 0.35;
+    }
+}
+
+#btn-panel,
+#btn-area {
+    width: 38px;
+    height: 38px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--hairline);
+    border-radius: 50%;
+    background: var(--surface);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+#btn-panel:active,
+#btn-area:active {
+    color: var(--text);
+    transform: scale(0.94);
+}
+
+#btn-area.active {
+    color: #fff;
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+/* ── Area edit toolbar ───────────────────────────────────────────────────── */
+
+#area-toolbar {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    left: 50%;
+    /* Hidden state: fully off-screen regardless of safe-area offset or the
+       toolbar's own height, and invisible so it can never linger on screen. */
+    transform: translate(-50%, calc(-100% - env(safe-area-inset-top, 0px) - 24px));
+    opacity: 0;
+    visibility: hidden;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px 8px 16px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    z-index: 30;
+    transition:
+        transform 0.3s cubic-bezier(0.32, 0.72, 0.25, 1),
+        opacity 0.25s ease,
+        visibility 0s linear 0.3s;
+}
+
+body.area-edit #area-toolbar {
+    transform: translate(-50%, 0);
+    opacity: 1;
+    visibility: visible;
+    transition:
+        transform 0.3s cubic-bezier(0.32, 0.72, 0.25, 1),
+        opacity 0.25s ease;
+}
+
+.area-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+#area-toolbar button {
+    padding: 7px 14px;
+    border: none;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+#area-toolbar #btn-area-done {
+    background: var(--accent);
+    color: #fff;
+}
+
+/* ── Connection overlay ──────────────────────────────────────────────────── */
+
+#overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    display: grid;
+    place-items: center;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s ease;
+}
+
+#overlay.visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.overlay-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    padding: 36px 44px;
+    border-radius: 24px;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    text-align: center;
+    max-width: 340px;
+}
+
+.overlay-card h1 {
+    font-size: 20px;
+    font-weight: 650;
+}
+
+.overlay-card p {
+    font-size: 14px;
+    color: var(--text-dim);
+    line-height: 1.45;
+}
+
+.overlay-host {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: ui-monospace, "SF Mono", monospace;
+}
+
+.spinner {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: 2.5px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--accent);
+    animation: spin 0.85s linear infinite;
+}
+
+.spinner.hidden {
+    display: none;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.primary-button {
+    padding: 11px 22px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.primary-button:active {
+    filter: brightness(0.85);
+}
+
+.primary-button.hidden {
+    display: none;
+}
+
+.secondary-button {
+    width: 100%;
+    padding: 11px;
+    margin-top: 10px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.secondary-button:active {
+    filter: brightness(1.25);
+}
+
+/* ── Settings panel ──────────────────────────────────────────────────────── */
+
+/* Dimming only — never intercepts input, so the pen keeps drawing (and the
+   live pressure indicators keep updating) while the panel is open. Closing
+   on an outside tap is handled in JS, ignoring pen pointers. */
+#panel-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 48;
+    background: rgba(0, 0, 0, 0.4);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s ease;
+}
+
+body.panel-open #panel-backdrop {
+    opacity: 1;
+}
+
+#panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(400px, 100vw);
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    background: rgba(18, 18, 20, 0.96);
+    backdrop-filter: blur(28px);
+    -webkit-backdrop-filter: blur(28px);
+    border-left: 1px solid var(--hairline);
+    transform: translateX(102%);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0.25, 1);
+    padding-top: env(safe-area-inset-top, 0px);
+}
+
+body.panel-open #panel {
+    transform: translateX(0);
+}
+
+.panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 20px 10px;
+}
+
+.panel-header h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+#btn-panel-close {
+    width: 32px;
+    height: 32px;
+    display: grid;
+    place-items: center;
+    border: none;
+    border-radius: 50%;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    cursor: pointer;
+}
+
+.panel-scroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 6px 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.card {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: var(--radius);
+    padding: 16px;
+}
+
+.card-title {
+    font-size: 12px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+}
+
+.row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 34px;
+    font-size: 14px;
+}
+
+.row-label {
+    color: var(--text);
+}
+
+.row-value {
+    color: var(--text-dim);
+}
+
+.row-value.mono {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 13px;
+}
+
+.hint {
+    margin-top: 12px;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+
+.panel-footer {
+    text-align: center;
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 4px 0 8px;
+}
+
+/* ── Switch ──────────────────────────────────────────────────────────────── */
+
+.switch {
+    width: 50px;
+    height: 30px;
+    flex: none;
+    border: none;
+    border-radius: 999px;
+    background: var(--surface-2);
+    position: relative;
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+
+.switch[aria-checked="true"] {
+    background: var(--green);
+}
+
+.switch span {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+    transition: transform 0.2s ease;
+}
+
+.switch[aria-checked="true"] span {
+    transform: translateX(20px);
+}
+
+/* ── Monitor map & list ──────────────────────────────────────────────────── */
+
+#monitor-map {
+    position: relative;
+    width: 100%;
+    height: 120px;
+    margin-bottom: 12px;
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid var(--hairline);
+    overflow: hidden;
+}
+
+.map-monitor {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    border-radius: 6px;
+    background: var(--surface-2);
+    border: 1.5px solid rgba(255, 255, 255, 0.16);
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.map-monitor.selected {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+#monitor-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.monitor-card {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid var(--hairline);
+    border-radius: 12px;
+    background: transparent;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.monitor-card.selected {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
+.monitor-card .check {
+    width: 20px;
+    height: 20px;
+    flex: none;
+    border-radius: 50%;
+    border: 1.5px solid var(--text-dim);
+    display: grid;
+    place-items: center;
+    color: transparent;
+}
+
+.monitor-card.selected .check {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.monitor-card .m-name {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.monitor-card .m-detail {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── Pressure curve ──────────────────────────────────────────────────────── */
+
+#curve-editor {
+    width: 100%;
+    height: 230px;
+    display: block;
+    border-radius: 12px;
+    touch-action: none;
+}
+
+.pressure-live {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.pressure-track {
+    height: 6px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.pressure-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 3px;
+    transition: width 40ms linear;
+}
+
+.pressure-fill.raw {
+    background: var(--text-dim);
+}
+
+.pressure-fill.mapped {
+    background: var(--accent);
+}
+
+.pressure-legend {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+}
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+
+.segmented {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+    gap: 2px;
+    margin-top: 14px;
+    padding: 2px;
+    border-radius: 10px;
+    background: var(--surface-2);
+}
+
+.segmented button {
+    padding: 8px 0;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 13px;
+    font-weight: 550;
+    cursor: pointer;
+}
+
+.segmented button.active {
+    background: #48484c;
+    color: var(--text);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
