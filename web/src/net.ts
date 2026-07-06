@@ -15,6 +15,10 @@ export interface TransportEvents {
 const PING_INTERVAL_MS = 2000;
 // Force a reconnect when nothing (not even a pong) arrived for this long.
 const STALE_TIMEOUT_MS = 8000;
+// Abort sockets stuck in CONNECTING: an iPad waking before Wi-Fi is back up
+// can leave one hanging for tens of seconds, and nudge() can't help until
+// the browser gives up on its own.
+const CONNECT_TIMEOUT_MS = 5000;
 const BACKOFF_BASE_MS = 300;
 const BACKOFF_MAX_MS = 4000;
 // If this much is stuck in the socket buffer, the link is congested —
@@ -87,7 +91,14 @@ export class Transport {
         ws.binaryType = "arraybuffer";
         this.ws = ws;
 
+        // close() on a CONNECTING socket aborts the attempt and fires
+        // onclose, so the normal backoff path takes over.
+        const connectTimer = window.setTimeout(() => {
+            if (ws.readyState === WebSocket.CONNECTING) ws.close();
+        }, CONNECT_TIMEOUT_MS);
+
         ws.onopen = () => {
+            window.clearTimeout(connectTimer);
             this.attempt = 0;
             this.lastActivity = performance.now();
             this.setState("online");
@@ -118,6 +129,7 @@ export class Transport {
         };
 
         ws.onclose = () => {
+            window.clearTimeout(connectTimer);
             if (this.ws !== ws) return;
             this.ws = null;
             this.stopPing();

@@ -88,7 +88,9 @@ func (h *Hub) Submit(task injectionTask) {
 }
 
 // Attach registers a session as the active controller, displacing any
-// previous one. The displaced session is told why and closed.
+// previous one. The displaced session is told why and closed, and any pen
+// contact it left behind is released — queued here, so it lands before the
+// new controller's first events.
 func (h *Hub) Attach(s *Session) {
 	h.mu.Lock()
 	prev := h.active
@@ -98,19 +100,24 @@ func (h *Hub) Attach(s *Session) {
 	if prev != nil && prev != s {
 		log.Printf("Session %s displaced by %s", prev.remoteAddr, s.remoteAddr)
 		prev.Displace()
+		h.Submit(func(inj *Injector) { inj.ForcePenUp() })
 	}
 }
 
-// Detach unregisters a session (only if it is still the active one) and
-// releases any held pen contact.
+// Detach unregisters a session and releases any held pen contact — but only
+// if it is still the active controller. A displaced session tears down
+// seconds later; injecting a pen-up then would cut its successor's stroke.
 func (h *Hub) Detach(s *Session) {
 	h.mu.Lock()
-	if h.active == s {
+	wasActive := h.active == s
+	if wasActive {
 		h.active = nil
 	}
 	h.mu.Unlock()
 
-	h.Submit(func(inj *Injector) { inj.ForcePenUp() })
+	if wasActive {
+		h.Submit(func(inj *Injector) { inj.ForcePenUp() })
+	}
 }
 
 // IsActive reports whether the session currently controls the pen.

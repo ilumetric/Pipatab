@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"sort"
+	"sync"
 	"syscall"
 	"unsafe"
 )
@@ -54,21 +55,26 @@ type monitorInfoExW struct {
 	SzDevice  [32]uint16
 }
 
-// EnumerateMonitors lists all active displays sorted primary-first, with
-// positions rebased to the virtual screen origin.
-func EnumerateMonitors() []Monitor {
-	type rawMonitor struct {
-		device    string
-		rect      winRect
-		isPrimary bool
-	}
-	var raw []rawMonitor
+type rawMonitor struct {
+	device    string
+	rect      winRect
+	isPrimary bool
+}
 
-	callback := syscall.NewCallback(func(hMonitor, hdc, lprc, lparam uintptr) uintptr {
+// The enumeration callback is created exactly once: syscall.NewCallback
+// registrations are permanent and the runtime caps them (~2000 per process),
+// so allocating one per call would eventually panic the whole server after
+// enough reconnects/panel refreshes. Results land in enumCollected; enumMu
+// serializes enumerations from concurrent session goroutines.
+var (
+	enumMu        sync.Mutex
+	enumCollected []rawMonitor
+
+	enumMonitorsCallback = syscall.NewCallback(func(hMonitor, hdc, lprc, lparam uintptr) uintptr {
 		var mi monitorInfoExW
 		mi.CbSize = uint32(unsafe.Sizeof(mi))
 		if r, _, _ := procGetMonitorInfoW.Call(hMonitor, uintptr(unsafe.Pointer(&mi))); r != 0 {
-			raw = append(raw, rawMonitor{
+			enumCollected = append(enumCollected, rawMonitor{
 				device:    syscall.UTF16ToString(mi.SzDevice[:]),
 				rect:      mi.RcMonitor,
 				isPrimary: (mi.DwFlags & monitorInfoFPrimary) != 0,
@@ -76,7 +82,16 @@ func EnumerateMonitors() []Monitor {
 		}
 		return 1 // continue enumeration
 	})
-	procEnumDisplayMonitors.Call(0, 0, callback, 0)
+)
+
+// EnumerateMonitors lists all active displays sorted primary-first, with
+// positions rebased to the virtual screen origin.
+func EnumerateMonitors() []Monitor {
+	enumMu.Lock()
+	enumCollected = enumCollected[:0]
+	procEnumDisplayMonitors.Call(0, 0, enumMonitorsCallback, 0)
+	raw := append([]rawMonitor(nil), enumCollected...)
+	enumMu.Unlock()
 
 	if len(raw) == 0 {
 		return nil

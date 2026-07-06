@@ -20,6 +20,10 @@ const (
 	// Outbound queue carries only control messages (pongs, monitor lists),
 	// never pen events.
 	outboundQueueSize = 64
+
+	// Pen batches are ≤ ~3 KB and control messages are tiny; anything larger
+	// is a broken or hostile client.
+	maxMessageSize = 64 * 1024
 )
 
 var wsUpgrader = websocket.Upgrader{
@@ -37,8 +41,11 @@ type Session struct {
 	conn       *websocket.Conn
 	remoteAddr string
 
+	// outMu guards out against send-after-close: Displace() is called from
+	// the attaching session's goroutine and can race this session's teardown.
+	outMu     sync.Mutex
+	outClosed bool
 	out       chan []byte
-	closeOnce sync.Once
 }
 
 // HandleWebSocket upgrades the connection and runs the session to completion.
@@ -68,6 +75,11 @@ func (s *Session) Displace() {
 func (s *Session) send(msg serverMessage) {
 	data, err := json.Marshal(msg)
 	if err != nil {
+		return
+	}
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
+	if s.outClosed {
 		return
 	}
 	select {
@@ -121,6 +133,7 @@ func (s *Session) run() {
 		}
 	}()
 
+	s.conn.SetReadLimit(maxMessageSize)
 	s.conn.SetReadDeadline(time.Now().Add(readTimeout))
 	s.conn.SetPongHandler(func(string) error {
 		s.conn.SetReadDeadline(time.Now().Add(readTimeout))
@@ -172,7 +185,10 @@ func (s *Session) run() {
 	}
 
 	close(pingStop)
+	s.outMu.Lock()
+	s.outClosed = true
 	close(s.out)
+	s.outMu.Unlock()
 	<-writerDone
 	log.Printf("Client disconnected: %s", s.remoteAddr)
 }
