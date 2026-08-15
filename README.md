@@ -40,9 +40,9 @@ No screen mirroring — pen input only, like a classic screenless drawing tablet
 
 ## Quick start
 
-1. Download the latest `pipatab-*-windows-amd64.zip` from
+1. Download the latest `Pipatab-*-windows-amd64.zip` from
    [Releases](https://github.com/ilumetric/Pipatab/releases) and unzip it.
-2. Run `pipatab.exe` on the PC (allow it through the Windows firewall for
+2. Run `Pipatab.exe` on the PC (allow it through the Windows firewall for
    private networks).
 3. On the iPad, open the URL the server prints (e.g. `http://192.168.1.10:1701`)
    in Safari.
@@ -72,7 +72,7 @@ build.bat
 ```
 
 This typechecks and bundles the web client with esbuild, then compiles the Go
-server with the client embedded. The result is a single `pipatab.exe`.
+server with the client embedded. The result is a single `Pipatab.exe`.
 
 ## How it works
 

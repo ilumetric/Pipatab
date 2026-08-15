@@ -7,7 +7,7 @@
 
 ## Как пользоваться
 
-1. На ПК: запустить `pipatab.exe` (порт по умолчанию 1701).
+1. На ПК: запустить `Pipatab.exe` (порт по умолчанию 1701).
 2. На iPad: открыть `http://<ip-компьютера>:1701` в Safari, добавить на экран «Домой» для полноэкранного режима.
 3. Все настройки — на iPad: выбор монитора, кривая давления, hover.
 
@@ -79,7 +79,7 @@
 
 - **Сервер:** Go + gorilla/websocket + WinAPI (без cgo)
 - **Клиент:** TypeScript → esbuild → один `app.js`; статика встраивается в бинарник (`go:embed`)
-- **Сборка:** `build.bat` (typecheck → bundle → `go build`), артефакт — один `pipatab.exe`;
+- **Сборка:** `build.bat` (typecheck → bundle → `go build`), артефакт — один `Pipatab.exe`;
   версия вшивается из git-тега (`-X main.version`), релизы собирает GitHub Actions по тегу `v*` (см. `RELEASING.md`)
 
 ```

@@ -19,7 +19,7 @@ set VERSION=dev
 for /f "delims=" %%v in ('git describe --tags --always --dirty 2^>nul') do set VERSION=%%v
 
 echo Building server %VERSION%...
-go build -trimpath -ldflags "-s -w -X main.version=%VERSION%" -o pipatab.exe .
+go build -trimpath -ldflags "-s -w -X main.version=%VERSION%" -o Pipatab.exe .
 if %ERRORLEVEL% neq 0 exit /b 1
 
-echo Build complete: pipatab.exe (%VERSION%)
+echo Build complete: Pipatab.exe (%VERSION%)

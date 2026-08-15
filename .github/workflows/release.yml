@@ -39,13 +39,13 @@ jobs:
         run: >
           go build -trimpath
           -ldflags "-s -w -X main.version=${{ github.ref_name }}"
-          -o pipatab.exe .
+          -o Pipatab.exe .
 
       - name: Package
-        run: zip "pipatab-${{ github.ref_name }}-windows-amd64.zip" pipatab.exe README.md CHANGELOG.md LICENSE
+        run: zip "Pipatab-${{ github.ref_name }}-windows-amd64.zip" Pipatab.exe README.md CHANGELOG.md LICENSE
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: pipatab-*.zip
+          files: Pipatab-*.zip
           generate_release_notes: true

@@ -1,6 +1,7 @@
 # Build output
+Pipatab.exe
 pipatab.exe
-pipatab-*.zip
+Pipatab-*.zip
 
 # Go
 /vendor/

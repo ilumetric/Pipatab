@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-08-15
+
+### Changed
+
+- Binary renamed to `Pipatab.exe` (was `pipatab.exe`); release archive renamed
+  accordingly
+- The executable now has an application icon
+
 ## [2.0.0] - 2026-08-15
 
 First public release. Complete rewrite of the original Rust prototype in Go +
@@ -28,5 +36,6 @@ TypeScript.
   contact recovery, single-active-session takeover
 - Single-binary distribution: web client embedded via `go:embed`
 
-[Unreleased]: https://github.com/ilumetric/Pipatab/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/ilumetric/Pipatab/compare/v2.0.1...HEAD
+[2.0.1]: https://github.com/ilumetric/Pipatab/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/ilumetric/Pipatab/releases/tag/v2.0.0

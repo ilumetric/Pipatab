@@ -25,7 +25,7 @@ tag is pushed. Versions follow [SemVer](https://semver.org/) with a `v` prefix.
 
 The workflow builds the client bundle and the Windows binary with the version
 stamped in (`-X main.version=vX.Y.Z`), packages
-`pipatab-vX.Y.Z-windows-amd64.zip`, and creates a GitHub Release with
+`Pipatab-vX.Y.Z-windows-amd64.zip`, and creates a GitHub Release with
 auto-generated notes. Edit the release afterwards to paste the changelog
 section if desired.
 
@@ -37,5 +37,5 @@ section if desired.
 - Local builds via `build.bat` stamp `git describe` output (e.g.
   `v2.0.0-3-gabc123-dirty`), so a dev build is always distinguishable from a
   release.
-- The server prints its version on startup and with `pipatab.exe -version`;
+- The server prints its version on startup and with `Pipatab.exe -version`;
   the iPad client shows it in the settings panel footer.
