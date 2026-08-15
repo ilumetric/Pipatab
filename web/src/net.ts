@@ -10,6 +10,7 @@ export interface TransportEvents {
     onState(state: ConnState, attempt: number): void;
     onMonitors(monitors: MonitorInfo[], selectedIds: string[], isWelcome: boolean): void;
     onLatency(rttMs: number): void;
+    onVersion(version: string): void;
 }
 
 const PING_INTERVAL_MS = 2000;
@@ -117,6 +118,7 @@ export class Transport {
             switch (msg.type) {
                 case "welcome":
                 case "monitors":
+                    if (msg.type === "welcome" && msg.version) this.events.onVersion(msg.version);
                     this.events.onMonitors(msg.monitors ?? [], msg.monitorIds ?? [], msg.type === "welcome");
                     break;
                 case "pong":

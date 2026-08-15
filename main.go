@@ -10,7 +10,9 @@ import (
 	"syscall"
 )
 
-const version = "2.0.0"
+// version is stamped at build time from the git tag via
+// -ldflags "-X main.version=v2.0.0" (see build.bat and the release workflow).
+var version = "dev"
 
 // preferredLocalIP returns the outbound IPv4 address via the UDP-dial trick
 // (no packet is sent).
@@ -31,12 +33,18 @@ func main() {
 	port := flag.Int("port", 1701, "HTTP/WebSocket port")
 	accessCode := flag.String("code", "", "Optional access code required in the URL (?code=...)")
 	monitorID := flag.String("monitor", "", `Initial monitor device name (e.g. \\.\DISPLAY2); default = primary`)
+	showVersion := flag.Bool("version", false, "Print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println("Pipatab", version)
+		return
+	}
 
 	log.SetFlags(log.Ltime)
 	InitDPIAwareness()
 
-	log.Printf("Pipatab v%s", version)
+	log.Printf("Pipatab %s", version)
 	for _, m := range EnumerateMonitors() {
 		primary := ""
 		if m.IsPrimary {

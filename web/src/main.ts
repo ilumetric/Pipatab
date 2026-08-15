@@ -50,6 +50,9 @@ window.addEventListener("DOMContentLoaded", () => {
         onState: handleState,
         onMonitors: handleMonitors,
         onLatency: handleLatency,
+        onVersion: (v) => {
+            $("panel-version").textContent = `Pipatab ${v} · settings live on this iPad`;
+        },
     });
     const pen = new PenCapture(pad, transport, buildLut(settings.curve));
     pen.setHoverEnabled(settings.hoverEnabled);

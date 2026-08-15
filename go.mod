@@ -1,4 +1,4 @@
-module pipatab
+module github.com/ilumetric/pipatab
 
 go 1.26.2
 

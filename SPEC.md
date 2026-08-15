@@ -79,7 +79,8 @@
 
 - **Сервер:** Go + gorilla/websocket + WinAPI (без cgo)
 - **Клиент:** TypeScript → esbuild → один `app.js`; статика встраивается в бинарник (`go:embed`)
-- **Сборка:** `build.bat` (typecheck → bundle → `go build`), артефакт — один `pipatab.exe`
+- **Сборка:** `build.bat` (typecheck → bundle → `go build`), артефакт — один `pipatab.exe`;
+  версия вшивается из git-тега (`-X main.version`), релизы собирает GitHub Actions по тегу `v*` (см. `RELEASING.md`)
 
 ```
 main.go               — CLI, старт

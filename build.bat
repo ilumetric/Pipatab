@@ -15,8 +15,11 @@ echo Bundling client...
 call npm run --silent build
 if %ERRORLEVEL% neq 0 exit /b 1
 
-echo Building server...
-go build -ldflags "-s -w" -o pipatab.exe .
+set VERSION=dev
+for /f "delims=" %%v in ('git describe --tags --always --dirty 2^>nul') do set VERSION=%%v
+
+echo Building server %VERSION%...
+go build -trimpath -ldflags "-s -w -X main.version=%VERSION%" -o pipatab.exe .
 if %ERRORLEVEL% neq 0 exit /b 1
 
-echo Build complete: pipatab.exe
+echo Build complete: pipatab.exe (%VERSION%)
