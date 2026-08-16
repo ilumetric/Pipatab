@@ -64,7 +64,7 @@ func main() {
 	}
 	log.Println("------------------------------------------")
 	if ip := preferredLocalIP(); ip != "" {
-		log.Printf("  Open on your iPad:  http://%s:%d%s", ip, *port, suffix)
+		log.Printf("  Open on your tablet:  http://%s:%d%s", ip, *port, suffix)
 	} else {
 		log.Printf("  Listening on port %d (no LAN address detected)", *port)
 	}

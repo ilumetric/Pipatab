@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Windows ARM64 release builds (`Pipatab-v*-windows-arm64.zip`)
+- PNG home-screen icons: fixes the blank iPad Home Screen icon (Safari cannot
+  use SVG for `apple-touch-icon`) and enables proper PWA install on Android
+
+### Changed
+
+- Android tablets/phones with an active stylus (S Pen, USI) in Chrome are now
+  a documented, supported client alongside the iPad
+
 ## [2.0.1] - 2026-08-15
 
 ### Changed

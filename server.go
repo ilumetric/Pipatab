@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-//go:embed web/index.html web/app.css web/dist/app.js web/manifest.webmanifest web/icon.svg
+//go:embed web/index.html web/app.css web/dist/app.js web/manifest.webmanifest web/icon.svg web/icon-180.png web/icon-192.png web/icon-512.png
 var webFS embed.FS
 
 type ServerConfig struct {
@@ -60,6 +60,10 @@ func RunServer(hub *Hub, cfg ServerConfig, shutdown <-chan struct{}) {
 	mux.HandleFunc("/app.js", serveEmbedded("web/dist/app.js", "text/javascript; charset=utf-8"))
 	mux.HandleFunc("/manifest.webmanifest", serveEmbedded("web/manifest.webmanifest", "application/manifest+json"))
 	mux.HandleFunc("/icon.svg", serveEmbedded("web/icon.svg", "image/svg+xml"))
+	for _, size := range []string{"180", "192", "512"} {
+		name := "icon-" + size + ".png"
+		mux.HandleFunc("/"+name, serveEmbedded("web/"+name, "image/png"))
+	}
 
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		if !authorized(r) {

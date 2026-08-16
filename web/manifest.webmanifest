@@ -1,7 +1,7 @@
 {
     "name": "Pipatab",
     "short_name": "Pipatab",
-    "description": "Wireless graphics tablet — draw on Windows with your iPad and Apple Pencil",
+    "description": "Wireless graphics tablet — draw on Windows with your iPad or Android tablet and a stylus",
     "start_url": "/",
     "display": "fullscreen",
     "orientation": "landscape",
@@ -12,6 +12,18 @@
             "src": "/icon.svg",
             "sizes": "any",
             "type": "image/svg+xml"
+        },
+        {
+            "src": "/icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "/icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
         }
     ]
 }

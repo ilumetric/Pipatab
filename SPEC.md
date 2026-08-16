@@ -8,7 +8,8 @@
 ## Как пользоваться
 
 1. На ПК: запустить `Pipatab.exe` (порт по умолчанию 1701).
-2. На iPad: открыть `http://<ip-компьютера>:1701` в Safari, добавить на экран «Домой» для полноэкранного режима.
+2. На iPad (Safari) или Android-планшете с активным стилусом (Chrome): открыть
+   `http://<ip-компьютера>:1701`, добавить на экран «Домой» для полноэкранного режима.
 3. Все настройки — на iPad: выбор монитора, кривая давления, hover.
 
 Флаги сервера: `-port`, `-bind`, `-code` (код доступа в URL `?code=...`), `-monitor` (стартовый монитор).
@@ -73,7 +74,8 @@
 
 - Тачпад-режим, жесты пальцами, squeeze Apple Pencil Pro — возможно позже
 - Зеркалирование экрана — принципиально нет
-- Linux / macOS сервер — не планируется
+- Linux / macOS сервер — не планируется: сервер построен на Windows-специфичном
+  `InjectSyntheticPointerInput`; портирование = отдельный бэкенд инъекции (uinput и т.п.)
 
 ## Стек и структура
 
@@ -92,7 +94,7 @@ injector_windows.go   — synthetic pen injection
 monitors_windows.go   — перечисление мониторов + дружелюбные имена
 dpi_windows.go        — Per-Monitor V2 DPI
 web/
-  index.html, app.css, icon.svg, manifest.webmanifest
+  index.html, app.css, icon.svg, icon-*.png (PWA/home-screen), manifest.webmanifest
   src/                — модули клиента (main, net, pen, pad, curve, curveEditor, protocol, settings)
   dist/app.js         — бандл (генерируется, в git не хранится)
 ```
