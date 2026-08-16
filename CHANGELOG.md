@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-16
+
 ### Added
 
 - Windows ARM64 release builds (`Pipatab-v*-windows-arm64.zip`)
@@ -47,6 +49,7 @@ TypeScript.
   contact recovery, single-active-session takeover
 - Single-binary distribution: web client embedded via `go:embed`
 
-[Unreleased]: https://github.com/ilumetric/Pipatab/compare/v2.0.1...HEAD
+[Unreleased]: https://github.com/ilumetric/Pipatab/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/ilumetric/Pipatab/compare/v2.0.1...v2.1.0
 [2.0.1]: https://github.com/ilumetric/Pipatab/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/ilumetric/Pipatab/releases/tag/v2.0.0
